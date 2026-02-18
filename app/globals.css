@@ -1,26 +1,65 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@theme {
+  --color-teal-950: #052020;
+  --color-teal-900: #083030;
+  --color-teal-800: #0d4545;
+  --color-teal-700: #145c5c;
+  --color-teal-600: #1b7373;
+  --color-teal-500: #228a8a;
+  --color-teal-400: #2da8a8;
+  --color-teal-300: #4dc4c4;
+  --color-teal-200: #80d8d8;
+  --color-teal-100: #b8ecec;
+  --color-teal-50:  #e8f8f8;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-gold-700: #9a7a08;
+  --color-gold-600: #c49b0c;
+  --color-gold-500: #f5c518;
+  --color-gold-400: #f8d145;
+  --color-gold-300: #fade70;
+  --color-gold-200: #fbe99e;
+  --color-gold-100: #fdf4cc;
+
+  --color-cream: #fdf8ee;
+  --color-parchment: #f5edd8;
+
+  --font-amiri: var(--font-amiri);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root {
+  --background: #083030;
+  --foreground: #e8f8f8;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.arabic-text {
+  font-family: var(--font-amiri), 'Scheherazade New', 'Traditional Arabic', serif;
+  direction: rtl;
+  line-height: 2.4;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #083030;
+}
+::-webkit-scrollbar-thumb {
+  background: #2da8a8;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #f5c518;
 }
