@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { JuzData, AyahWithTranslation } from '@/lib/api';
 import type { JuzInfo, Surah } from '@/lib/quran-data';
 
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface JuzViewerProps {
   juzNumber: number;
   juzInfo: JuzInfo;
@@ -14,6 +15,23 @@ interface JuzViewerProps {
   >;
 }
 
+// ── Audio constants ───────────────────────────────────────────────────────────
+const RECITERS = [
+  { id: 'Alafasy_128kbps',                  label: 'Mishary Al-Afasy' },
+  { id: 'AbdurRahmaanAs-Sudais_192kbps',    label: 'Abdul Rahman Al-Sudais' },
+  { id: 'Husary_128kbps',                   label: 'Mahmoud Al-Husary' },
+  { id: 'Ghamadi_40kbps',                   label: 'Saad Al-Ghamdi' },
+] as const;
+
+type ReciterId = (typeof RECITERS)[number]['id'];
+
+function ayahAudioUrl(surahNum: number, ayahInSurah: number, reciter: ReciterId): string {
+  const s = String(surahNum).padStart(3, '0');
+  const a = String(ayahInSurah).padStart(3, '0');
+  return `https://everyayah.com/data/${reciter}/${s}${a}.mp3`;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function toArabicNumeral(n: number): string {
   return n
     .toString()
@@ -29,6 +47,189 @@ function groupBySurah(ayahs: AyahWithTranslation[]): Map<number, AyahWithTransla
     map.get(ayah.surahNumber)!.push(ayah);
   }
   return map;
+}
+
+// ── Audio player ──────────────────────────────────────────────────────────────
+function SurahAudioPlayer({
+  ayahs,
+  onPlayingAyah,
+}: {
+  ayahs: AyahWithTranslation[];
+  onPlayingAyah: (ayahNumber: number | null) => void;
+}) {
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [isPlaying, setIsPlaying]   = useState(false);
+  const [isLoading, setIsLoading]   = useState(false);
+  const [reciter, setReciter]       = useState<ReciterId>('Alafasy_128kbps');
+
+  const audioRef         = useRef<HTMLAudioElement | null>(null);
+  const isPlayingRef     = useRef(isPlaying);
+  const onPlayingAyahRef = useRef(onPlayingAyah);
+  const currentIdxRef    = useRef(currentIdx);
+  isPlayingRef.current     = isPlaying;
+  onPlayingAyahRef.current = onPlayingAyah;
+  currentIdxRef.current    = currentIdx;
+
+  // Initialize audio element once
+  useEffect(() => {
+    const audio = new Audio();
+    audioRef.current = audio;
+
+    audio.onended = () => {
+      const idx = currentIdxRef.current;
+      if (idx < ayahs.length - 1) {
+        setCurrentIdx(idx + 1);
+      } else {
+        setIsPlaying(false);
+        onPlayingAyahRef.current(null);
+      }
+    };
+    audio.oncanplaythrough = () => setIsLoading(false);
+    audio.onerror = () => {
+      setIsLoading(false);
+      setIsPlaying(false);
+      onPlayingAyahRef.current(null);
+    };
+
+    return () => {
+      audio.pause();
+      audio.src = '';
+      audioRef.current = null;
+      onPlayingAyahRef.current(null);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Update src whenever the ayah index or reciter changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || ayahs.length === 0) return;
+
+    const ayah = ayahs[currentIdx];
+    audio.src = ayahAudioUrl(ayah.surahNumber, ayah.numberInSurah, reciter);
+
+    if (isPlayingRef.current) {
+      setIsLoading(true);
+      audio.play()
+        .then(() => onPlayingAyahRef.current(ayah.number))
+        .catch(() => { setIsPlaying(false); setIsLoading(false); });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIdx, reciter]);
+
+  // Handle play / pause
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isPlaying) {
+      setIsLoading(true);
+      audio.play()
+        .then(() => {
+          const ayah = ayahs[currentIdx];
+          onPlayingAyahRef.current(ayah?.number ?? null);
+        })
+        .catch(() => { setIsPlaying(false); setIsLoading(false); });
+    } else {
+      audio.pause();
+      onPlayingAyahRef.current(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying]);
+
+  const currentAyah = ayahs[currentIdx];
+  const progress    = ayahs.length > 0 ? ((currentIdx + 1) / ayahs.length) * 100 : 0;
+
+  return (
+    <div className="bg-teal-950 border border-gold-700/30 rounded-xl px-4 py-3 mb-6">
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Reciter selector */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-gold-500 text-sm shrink-0">🎙</span>
+          <select
+            value={reciter}
+            onChange={(e) => {
+              setReciter(e.target.value as ReciterId);
+              if (isPlayingRef.current) setIsLoading(true);
+            }}
+            className="bg-teal-800 border border-teal-600 text-teal-200 text-xs rounded-lg px-2 py-1.5 max-w-[160px] focus:outline-none focus:border-gold-500 transition-colors"
+          >
+            {RECITERS.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Controls */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Previous ayah */}
+          <button
+            onClick={() => {
+              setCurrentIdx((p) => Math.max(0, p - 1));
+            }}
+            disabled={currentIdx === 0}
+            title="Verset précédent"
+            className="w-8 h-8 flex items-center justify-center text-teal-400 hover:text-white disabled:text-teal-700 transition-colors"
+          >
+            ⏮
+          </button>
+
+          {/* Play / Pause */}
+          <button
+            onClick={() => setIsPlaying((p) => !p)}
+            title={isPlaying ? 'Pause' : 'Lire'}
+            className="w-10 h-10 rounded-full bg-gold-500 hover:bg-gold-400 text-teal-950 flex items-center justify-center font-bold text-lg transition-colors shadow-md"
+          >
+            {isLoading ? (
+              <span className="text-xs animate-pulse">…</span>
+            ) : isPlaying ? (
+              '⏸'
+            ) : (
+              '▶'
+            )}
+          </button>
+
+          {/* Next ayah */}
+          <button
+            onClick={() => setCurrentIdx((p) => Math.min(ayahs.length - 1, p + 1))}
+            disabled={currentIdx === ayahs.length - 1}
+            title="Verset suivant"
+            className="w-8 h-8 flex items-center justify-center text-teal-400 hover:text-white disabled:text-teal-700 transition-colors"
+          >
+            ⏭
+          </button>
+        </div>
+
+        {/* Ayah counter */}
+        <span className="text-teal-400 text-xs ml-auto">
+          {isPlaying && currentAyah ? (
+            <span className="text-gold-400 font-medium">
+              Verset {currentAyah.numberInSurah}
+            </span>
+          ) : (
+            'Verset'
+          )}{' '}
+          <span className="text-teal-500">
+            {currentIdx + 1} / {ayahs.length}
+          </span>
+        </span>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mt-2.5 h-1 bg-teal-800 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-gold-500 rounded-full transition-all duration-300"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+
+      <p className="text-teal-600 text-xs mt-1">
+        Lecture automatique verset par verset
+      </p>
+    </div>
+  );
 }
 
 // ── Surah header ──────────────────────────────────────────────────────────────
@@ -68,6 +269,7 @@ function SurahHeader({
           <div className="h-px flex-1 bg-gold-700/40" />
         </div>
       </div>
+
       {showBismillah && (
         <div className="bg-teal-900 border-t border-teal-800 px-6 py-4 text-center">
           <p className="arabic-text text-gold-300 text-2xl" dir="rtl">
@@ -83,16 +285,43 @@ function SurahHeader({
 }
 
 // ── Single ayah ───────────────────────────────────────────────────────────────
-function AyahRow({ ayah, idx }: { ayah: AyahWithTranslation; idx: number }) {
+function AyahRow({
+  ayah,
+  idx,
+  isActive,
+}: {
+  ayah: AyahWithTranslation;
+  idx: number;
+  isActive: boolean;
+}) {
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // Scroll into view when this ayah becomes active
+  useEffect(() => {
+    if (isActive) {
+      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [isActive]);
+
   return (
     <div
-      className={`border-b border-teal-800/60 py-5 px-3 rounded-lg transition-colors hover:bg-teal-800/40 ${
-        idx % 2 !== 0 ? 'bg-teal-800/20' : ''
+      ref={rowRef}
+      className={`border-b py-5 px-3 rounded-lg transition-all ${
+        isActive
+          ? 'bg-teal-700/40 border-l-4 border-l-gold-500 border-b-teal-700'
+          : `border-b-teal-800/60 hover:bg-teal-800/40 ${idx % 2 !== 0 ? 'bg-teal-800/20' : ''}`
       }`}
     >
+      {/* Arabic */}
       <div className="flex items-start gap-3 justify-end mb-3">
         <div className="order-first mt-1 shrink-0">
-          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-gold-700/50 text-gold-600 text-xs font-medium">
+          <span
+            className={`inline-flex items-center justify-center w-8 h-8 rounded-full border text-xs font-medium transition-colors ${
+              isActive
+                ? 'border-gold-500 text-gold-400 bg-gold-500/10'
+                : 'border-gold-700/50 text-gold-600'
+            }`}
+          >
             {ayah.numberInSurah}
           </span>
         </div>
@@ -102,9 +331,13 @@ function AyahRow({ ayah, idx }: { ayah: AyahWithTranslation; idx: number }) {
           lang="ar"
         >
           {ayah.arabicText}{' '}
-          <span className="text-gold-500 text-base">﴿{toArabicNumeral(ayah.numberInSurah)}﴾</span>
+          <span className={`text-base ${isActive ? 'text-gold-400' : 'text-gold-500'}`}>
+            ﴿{toArabicNumeral(ayah.numberInSurah)}﴾
+          </span>
         </p>
       </div>
+
+      {/* French translation */}
       <div className="pl-11">
         <p className="text-teal-200 text-sm leading-relaxed">
           <span className="text-teal-500 font-medium mr-1">{ayah.numberInSurah}.</span>
@@ -119,43 +352,30 @@ function AyahRow({ ayah, idx }: { ayah: AyahWithTranslation; idx: number }) {
 function ReadingSkeleton() {
   return (
     <div className="space-y-6">
-      {/* Surah tab bar skeleton */}
       <div className="flex gap-2 overflow-hidden">
         {[80, 110, 70].map((w) => (
-          <div
-            key={w}
-            className="h-9 bg-teal-800 rounded-full animate-pulse shrink-0"
-            style={{ width: w }}
-          />
+          <div key={w} className="h-9 bg-teal-800 rounded-full animate-pulse shrink-0" style={{ width: w }} />
         ))}
       </div>
-      {/* Surah header skeleton */}
+      <div className="bg-teal-950 border border-teal-700 rounded-xl p-4 animate-pulse">
+        <div className="h-4 bg-teal-800 rounded w-40 mx-auto" />
+      </div>
       <div className="bg-teal-950 border border-teal-700 rounded-2xl p-6 text-center space-y-3">
         <div className="h-8 w-48 bg-teal-800 rounded animate-pulse mx-auto" />
         <div className="h-5 w-32 bg-teal-800/70 rounded animate-pulse mx-auto" />
         <div className="h-4 w-24 bg-teal-800/50 rounded animate-pulse mx-auto" />
       </div>
-      {/* Ayah rows skeleton */}
-      {Array.from({ length: 6 }).map((_, i) => (
+      {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="border-b border-teal-800/60 py-5">
           <div className="flex justify-end mb-3 gap-3">
             <div className="h-8 w-8 bg-teal-800 rounded-full animate-pulse shrink-0" />
             <div className="flex-1 space-y-2">
-              <div
-                className="h-6 bg-teal-800 rounded animate-pulse"
-                style={{ width: `${72 + (i % 3) * 9}%` }}
-              />
-              <div
-                className="h-6 bg-teal-800/60 rounded animate-pulse ml-auto"
-                style={{ width: `${52 + (i % 4) * 8}%` }}
-              />
+              <div className="h-6 bg-teal-800 rounded animate-pulse" style={{ width: `${72 + (i % 3) * 9}%` }} />
+              <div className="h-6 bg-teal-800/60 rounded animate-pulse ml-auto" style={{ width: `${52 + (i % 4) * 8}%` }} />
             </div>
           </div>
-          <div className="pl-11 space-y-1">
-            <div
-              className="h-4 bg-teal-800/50 rounded animate-pulse"
-              style={{ width: `${62 + (i % 3) * 10}%` }}
-            />
+          <div className="pl-11">
+            <div className="h-4 bg-teal-800/50 rounded animate-pulse" style={{ width: `${62 + (i % 3) * 10}%` }} />
           </div>
         </div>
       ))}
@@ -163,7 +383,7 @@ function ReadingSkeleton() {
   );
 }
 
-// ── Surah tab bar ─────────────────────────────────────────────────────────────
+// ── Surah tabs ────────────────────────────────────────────────────────────────
 function SurahTabs({
   surahNumbers,
   currentIdx,
@@ -177,22 +397,15 @@ function SurahTabs({
 }) {
   const tabRef = useRef<HTMLDivElement>(null);
 
-  // Scroll active tab into view
   useEffect(() => {
     const container = tabRef.current;
     if (!container) return;
     const active = container.querySelector('[data-active="true"]') as HTMLElement | null;
-    if (active) {
-      active.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-    }
+    active?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
   }, [currentIdx]);
 
   return (
-    <div
-      ref={tabRef}
-      className="flex gap-2 overflow-x-auto pb-1 scrollbar-none"
-      style={{ scrollbarWidth: 'none' }}
-    >
+    <div ref={tabRef} className="flex gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none' }}>
       {surahNumbers.map((surahNum, idx) => {
         const isActive = idx === currentIdx;
         const name = meta[surahNum]?.nameTranslit ?? `S.${surahNum}`;
@@ -217,19 +430,21 @@ function SurahTabs({
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerProps) {
-  const [juzData, setJuzData] = useState<JuzData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [juzData, setJuzData]               = useState<JuzData | null>(null);
+  const [error, setError]                   = useState<string | null>(null);
+  const [loading, setLoading]               = useState(true);
   const [currentSurahIdx, setCurrentSurahIdx] = useState(0);
+  const [playingAyahNumber, setPlayingAyahNumber] = useState<number | null>(null);
 
   const contentRef = useRef<HTMLDivElement>(null);
-  const prevJuz = juzNumber > 1 ? juzNumber - 1 : null;
-  const nextJuz = juzNumber < 30 ? juzNumber + 1 : null;
+  const prevJuz    = juzNumber > 1 ? juzNumber - 1 : null;
+  const nextJuz    = juzNumber < 30 ? juzNumber + 1 : null;
 
   const loadJuz = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setCurrentSurahIdx(0); // reset to first surah on new juz
+    setCurrentSurahIdx(0);
+    setPlayingAyahNumber(null);
     try {
       const res = await fetch(`/api/juz/${juzNumber}`);
       if (!res.ok) {
@@ -245,28 +460,23 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
     }
   }, [juzNumber]);
 
-  useEffect(() => {
-    loadJuz();
-  }, [loadJuz]);
+  useEffect(() => { loadJuz(); }, [loadJuz]);
 
-  const surahGroups = juzData ? groupBySurah(juzData.ayahs) : null;
-  const surahNumbers = surahGroups ? Array.from(surahGroups.keys()) : [];
-
-  // Derived values for current surah page
-  const currentSurahNumber = surahNumbers[currentSurahIdx] ?? null;
-  const currentAyahs =
-    currentSurahNumber && surahGroups ? (surahGroups.get(currentSurahNumber) ?? []) : [];
-  const isFirstSurah = currentSurahIdx === 0;
-  const isLastSurah = currentSurahIdx === surahNumbers.length - 1;
-  const showBismillah =
-    currentSurahNumber !== null &&
-    currentSurahNumber !== 1 &&
-    currentSurahNumber !== 9 &&
+  const surahGroups     = juzData ? groupBySurah(juzData.ayahs) : null;
+  const surahNumbers    = surahGroups ? Array.from(surahGroups.keys()) : [];
+  const currentSurahNum = surahNumbers[currentSurahIdx] ?? null;
+  const currentAyahs    = currentSurahNum && surahGroups ? (surahGroups.get(currentSurahNum) ?? []) : [];
+  const isFirstSurah    = currentSurahIdx === 0;
+  const isLastSurah     = currentSurahIdx === surahNumbers.length - 1;
+  const showBismillah   =
+    currentSurahNum !== null &&
+    currentSurahNum !== 1 &&
+    currentSurahNum !== 9 &&
     currentAyahs[0]?.numberInSurah === 1;
 
   function goToSurah(idx: number) {
     setCurrentSurahIdx(idx);
-    // Small delay so state updates before scroll
+    setPlayingAyahNumber(null);
     setTimeout(() => {
       contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
@@ -276,10 +486,7 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
     <main className="min-h-screen bg-teal-900 text-teal-50">
       {/* ── Sticky header ── */}
       <header className="sticky top-0 z-50 bg-teal-950/95 backdrop-blur border-b border-teal-800 px-4 sm:px-6 py-3 flex items-center gap-3">
-        <Link
-          href="/"
-          className="text-teal-400 hover:text-gold-400 transition-colors text-sm shrink-0"
-        >
+        <Link href="/" className="text-teal-400 hover:text-gold-400 transition-colors text-sm shrink-0">
           ← Accueil
         </Link>
         <div className="h-4 w-px bg-teal-700" />
@@ -289,18 +496,12 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {prevJuz && (
-            <Link
-              href={`/juz/${prevJuz}`}
-              className="bg-teal-800 hover:bg-teal-700 border border-teal-700 text-teal-300 hover:text-white text-xs px-3 py-1.5 rounded-lg transition-colors"
-            >
+            <Link href={`/juz/${prevJuz}`} className="bg-teal-800 hover:bg-teal-700 border border-teal-700 text-teal-300 hover:text-white text-xs px-3 py-1.5 rounded-lg transition-colors">
               ← {prevJuz}
             </Link>
           )}
           {nextJuz && (
-            <Link
-              href={`/juz/${nextJuz}`}
-              className="bg-teal-800 hover:bg-gold-500 hover:text-teal-950 border border-teal-700 hover:border-gold-500 text-teal-300 text-xs px-3 py-1.5 rounded-lg transition-colors font-medium"
-            >
+            <Link href={`/juz/${nextJuz}`} className="bg-teal-800 hover:bg-gold-500 hover:text-teal-950 border border-teal-700 hover:border-gold-500 text-teal-300 text-xs px-3 py-1.5 rounded-lg transition-colors font-medium">
               {nextJuz} →
             </Link>
           )}
@@ -311,68 +512,46 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
       <div className="bg-teal-800 border-b border-teal-700 px-4 sm:px-8 py-3 max-w-4xl mx-auto">
         <div className="flex flex-wrap gap-x-6 gap-y-1 items-center text-sm">
           {[
-            { label: 'Juz', value: `${juzNumber} / 30`, accent: true },
+            { label: 'Juz',    value: `${juzNumber} / 30`, accent: true },
             { label: 'Versets', value: juzData ? String(juzData.ayahs.length) : '—' },
-            {
-              label: 'Début',
-              value: `${surahMeta[juzInfo.startSurah]?.nameTranslit ?? ''}${juzInfo.startAyah !== 1 ? ` :${juzInfo.startAyah}` : ''}`,
-            },
-            {
-              label: 'Fin',
-              value: `${surahMeta[juzInfo.endSurah]?.nameTranslit ?? ''} :${juzInfo.endAyah}`,
-            },
+            { label: 'Début',   value: `${surahMeta[juzInfo.startSurah]?.nameTranslit ?? ''}${juzInfo.startAyah !== 1 ? ` :${juzInfo.startAyah}` : ''}` },
+            { label: 'Fin',     value: `${surahMeta[juzInfo.endSurah]?.nameTranslit ?? ''} :${juzInfo.endAyah}` },
           ].map(({ label, value, accent }) => (
             <div key={label}>
               <span className="text-teal-400 text-xs block">{label}</span>
-              <span className={`font-medium ${accent ? 'text-gold-400 text-xl' : 'text-white text-sm'}`}>
-                {value}
-              </span>
+              <span className={`font-medium ${accent ? 'text-gold-400 text-xl' : 'text-white text-sm'}`}>{value}</span>
             </div>
           ))}
         </div>
-        {/* Progress bar */}
         <div className="mt-2">
           <div className="h-1.5 bg-teal-900 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gold-500 rounded-full"
-              style={{ width: `${(juzNumber / 30) * 100}%` }}
-            />
+            <div className="h-full bg-gold-500 rounded-full" style={{ width: `${(juzNumber / 30) * 100}%` }} />
           </div>
-          <p className="text-teal-600 text-xs mt-0.5 text-right">
-            {Math.round((juzNumber / 30) * 100)}% du Coran
-          </p>
+          <p className="text-teal-600 text-xs mt-0.5 text-right">{Math.round((juzNumber / 30) * 100)}% du Coran</p>
         </div>
       </div>
 
       {/* ── Reading area ── */}
       <div ref={contentRef} className="max-w-4xl mx-auto px-4 sm:px-8 py-6">
 
-        {/* Loading */}
         {loading && <ReadingSkeleton />}
 
-        {/* Error */}
         {!loading && error && (
           <div className="text-center py-16">
             <div className="text-5xl mb-4">⚠️</div>
             <p className="text-white font-semibold text-lg mb-2">Impossible de charger le Juz</p>
-            <p className="text-teal-300 text-sm mb-6 font-mono bg-teal-950 rounded-lg px-3 py-2 inline-block">
-              {error}
-            </p>
+            <p className="text-teal-300 text-sm mb-4 font-mono bg-teal-950 rounded-lg px-3 py-2 inline-block">{error}</p>
             <br />
-            <button
-              onClick={loadJuz}
-              className="mt-4 bg-gold-500 hover:bg-gold-400 text-teal-950 font-semibold px-5 py-2.5 rounded-xl transition-colors"
-            >
+            <button onClick={loadJuz} className="mt-4 bg-gold-500 hover:bg-gold-400 text-teal-950 font-semibold px-5 py-2.5 rounded-xl transition-colors">
               Réessayer
             </button>
           </div>
         )}
 
-        {/* Content */}
         {!loading && !error && surahGroups && (
           <>
-            {/* ── Surah tab bar ── */}
-            <div className="mb-6">
+            {/* Surah tabs */}
+            <div className="mb-5">
               <p className="text-teal-500 text-xs mb-2">
                 Sourate {currentSurahIdx + 1} sur {surahNumbers.length} dans ce Juz
               </p>
@@ -384,23 +563,34 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
               />
             </div>
 
-            {/* ── Current surah header ── */}
+            {/* Audio player — reset on surah change via key */}
+            <SurahAudioPlayer
+              key={currentSurahNum}
+              ayahs={currentAyahs}
+              onPlayingAyah={setPlayingAyahNumber}
+            />
+
+            {/* Surah header */}
             <SurahHeader
-              surahNumber={currentSurahNumber!}
-              meta={surahMeta[currentSurahNumber!]}
+              surahNumber={currentSurahNum!}
+              meta={surahMeta[currentSurahNum!]}
               showBismillah={showBismillah}
             />
 
-            {/* ── Ayahs ── */}
+            {/* Ayahs */}
             <div>
               {currentAyahs.map((ayah, idx) => (
-                <AyahRow key={ayah.number} ayah={ayah} idx={idx} />
+                <AyahRow
+                  key={ayah.number}
+                  ayah={ayah}
+                  idx={idx}
+                  isActive={ayah.number === playingAyahNumber}
+                />
               ))}
             </div>
 
-            {/* ── In-page surah navigation ── */}
+            {/* In-page surah navigation */}
             <div className="mt-8 flex items-center justify-between gap-4">
-              {/* Previous surah */}
               <div>
                 {!isFirstSurah ? (
                   <button
@@ -410,16 +600,11 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
                     <span>←</span>
                     <div>
                       <p className="text-xs text-teal-400">Précédente</p>
-                      <p className="text-sm font-medium">
-                        {surahMeta[surahNumbers[currentSurahIdx - 1]]?.nameTranslit}
-                      </p>
+                      <p className="text-sm font-medium">{surahMeta[surahNumbers[currentSurahIdx - 1]]?.nameTranslit}</p>
                     </div>
                   </button>
                 ) : prevJuz ? (
-                  <Link
-                    href={`/juz/${prevJuz}`}
-                    className="flex items-center gap-2 bg-teal-800 hover:bg-teal-700 border border-teal-700 text-teal-300 px-4 py-2.5 rounded-xl transition-colors"
-                  >
+                  <Link href={`/juz/${prevJuz}`} className="flex items-center gap-2 bg-teal-800 hover:bg-teal-700 border border-teal-700 text-teal-300 px-4 py-2.5 rounded-xl transition-colors">
                     <span>←</span>
                     <div>
                       <p className="text-xs text-teal-400">Juz précédent</p>
@@ -431,14 +616,10 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
                 )}
               </div>
 
-              {/* Surah counter pill */}
-              <div className="text-center">
-                <span className="bg-teal-800 border border-teal-700 text-teal-300 text-xs px-3 py-1.5 rounded-full">
-                  {currentSurahIdx + 1} / {surahNumbers.length}
-                </span>
-              </div>
+              <span className="bg-teal-800 border border-teal-700 text-teal-300 text-xs px-3 py-1.5 rounded-full">
+                {currentSurahIdx + 1} / {surahNumbers.length}
+              </span>
 
-              {/* Next surah */}
               <div>
                 {!isLastSurah ? (
                   <button
@@ -447,17 +628,12 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
                   >
                     <div className="text-right">
                       <p className="text-xs opacity-70">Suivante</p>
-                      <p className="text-sm font-bold">
-                        {surahMeta[surahNumbers[currentSurahIdx + 1]]?.nameTranslit}
-                      </p>
+                      <p className="text-sm font-bold">{surahMeta[surahNumbers[currentSurahIdx + 1]]?.nameTranslit}</p>
                     </div>
                     <span>→</span>
                   </button>
                 ) : nextJuz ? (
-                  <Link
-                    href={`/juz/${nextJuz}`}
-                    className="flex items-center gap-2 bg-gold-500 hover:bg-gold-400 text-teal-950 px-4 py-2.5 rounded-xl transition-colors font-medium"
-                  >
+                  <Link href={`/juz/${nextJuz}`} className="flex items-center gap-2 bg-gold-500 hover:bg-gold-400 text-teal-950 px-4 py-2.5 rounded-xl transition-colors font-medium">
                     <div className="text-right">
                       <p className="text-xs opacity-70">Juz suivant</p>
                       <p className="text-sm font-bold">Juz {nextJuz}</p>
