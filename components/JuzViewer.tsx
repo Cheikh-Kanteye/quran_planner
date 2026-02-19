@@ -17,10 +17,10 @@ interface JuzViewerProps {
 
 // ── Audio constants ───────────────────────────────────────────────────────────
 const RECITERS = [
-  { id: 'Alafasy_128kbps',                  label: 'Mishary Al-Afasy' },
-  { id: 'AbdurRahmaanAs-Sudais_192kbps',    label: 'Abdul Rahman Al-Sudais' },
-  { id: 'Husary_128kbps',                   label: 'Mahmoud Al-Husary' },
-  { id: 'Ghamadi_40kbps',                   label: 'Saad Al-Ghamdi' },
+  { id: 'Alafasy_128kbps',               label: 'Mishary Al-Afasy' },
+  { id: 'AbdurRahmaanAs-Sudais_192kbps', label: 'Abdul Rahman Al-Sudais' },
+  { id: 'Husary_128kbps',                label: 'Mahmoud Al-Husary' },
+  { id: 'Ghamadi_40kbps',                label: 'Saad Al-Ghamdi' },
 ] as const;
 
 type ReciterId = (typeof RECITERS)[number]['id'];
@@ -49,96 +49,30 @@ function groupBySurah(ayahs: AyahWithTranslation[]): Map<number, AyahWithTransla
   return map;
 }
 
-// ── Audio player ──────────────────────────────────────────────────────────────
+// ── Audio player (controlled — audio state lives in JuzViewer) ────────────────
 function SurahAudioPlayer({
   ayahs,
-  onPlayingAyah,
+  playerIdx,
+  isPlaying,
+  isAudioLoading,
+  reciter,
+  onPlayPause,
+  onPrev,
+  onNext,
+  onReciterChange,
 }: {
-  ayahs: AyahWithTranslation[];
-  onPlayingAyah: (ayahNumber: number | null) => void;
+  ayahs:          AyahWithTranslation[];
+  playerIdx:      number;
+  isPlaying:      boolean;
+  isAudioLoading: boolean;
+  reciter:        ReciterId;
+  onPlayPause:    () => void;
+  onPrev:         () => void;
+  onNext:         () => void;
+  onReciterChange:(r: ReciterId) => void;
 }) {
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [isPlaying, setIsPlaying]   = useState(false);
-  const [isLoading, setIsLoading]   = useState(false);
-  const [reciter, setReciter]       = useState<ReciterId>('Alafasy_128kbps');
-
-  const audioRef         = useRef<HTMLAudioElement | null>(null);
-  const isPlayingRef     = useRef(isPlaying);
-  const onPlayingAyahRef = useRef(onPlayingAyah);
-  const currentIdxRef    = useRef(currentIdx);
-  isPlayingRef.current     = isPlaying;
-  onPlayingAyahRef.current = onPlayingAyah;
-  currentIdxRef.current    = currentIdx;
-
-  // Initialize audio element once
-  useEffect(() => {
-    const audio = new Audio();
-    audioRef.current = audio;
-
-    audio.onended = () => {
-      const idx = currentIdxRef.current;
-      if (idx < ayahs.length - 1) {
-        setCurrentIdx(idx + 1);
-      } else {
-        setIsPlaying(false);
-        onPlayingAyahRef.current(null);
-      }
-    };
-    audio.oncanplaythrough = () => setIsLoading(false);
-    audio.onerror = () => {
-      setIsLoading(false);
-      setIsPlaying(false);
-      onPlayingAyahRef.current(null);
-    };
-
-    return () => {
-      audio.pause();
-      audio.src = '';
-      audioRef.current = null;
-      onPlayingAyahRef.current(null);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Update src whenever the ayah index or reciter changes
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || ayahs.length === 0) return;
-
-    const ayah = ayahs[currentIdx];
-    audio.src = ayahAudioUrl(ayah.surahNumber, ayah.numberInSurah, reciter);
-
-    if (isPlayingRef.current) {
-      setIsLoading(true);
-      audio.play()
-        .then(() => onPlayingAyahRef.current(ayah.number))
-        .catch(() => { setIsPlaying(false); setIsLoading(false); });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIdx, reciter]);
-
-  // Handle play / pause
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (isPlaying) {
-      setIsLoading(true);
-      audio.play()
-        .then(() => {
-          const ayah = ayahs[currentIdx];
-          onPlayingAyahRef.current(ayah?.number ?? null);
-        })
-        .catch(() => { setIsPlaying(false); setIsLoading(false); });
-    } else {
-      audio.pause();
-      onPlayingAyahRef.current(null);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying]);
-
-  const currentAyah = ayahs[currentIdx];
-  const progress    = ayahs.length > 0 ? ((currentIdx + 1) / ayahs.length) * 100 : 0;
+  const currentAyah = ayahs[playerIdx];
+  const progress    = ayahs.length > 0 ? ((playerIdx + 1) / ayahs.length) * 100 : 0;
 
   return (
     <div className="bg-teal-950 border border-gold-700/30 rounded-xl px-4 py-3 mb-6">
@@ -148,41 +82,32 @@ function SurahAudioPlayer({
           <span className="text-gold-500 text-sm shrink-0">🎙</span>
           <select
             value={reciter}
-            onChange={(e) => {
-              setReciter(e.target.value as ReciterId);
-              if (isPlayingRef.current) setIsLoading(true);
-            }}
+            onChange={(e) => onReciterChange(e.target.value as ReciterId)}
             className="bg-teal-800 border border-teal-600 text-teal-200 text-xs rounded-lg px-2 py-1.5 max-w-[160px] focus:outline-none focus:border-gold-500 transition-colors"
           >
             {RECITERS.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.label}
-              </option>
+              <option key={r.id} value={r.id}>{r.label}</option>
             ))}
           </select>
         </div>
 
         {/* Controls */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Previous ayah */}
           <button
-            onClick={() => {
-              setCurrentIdx((p) => Math.max(0, p - 1));
-            }}
-            disabled={currentIdx === 0}
+            onClick={onPrev}
+            disabled={playerIdx === 0}
             title="Verset précédent"
             className="w-8 h-8 flex items-center justify-center text-teal-400 hover:text-white disabled:text-teal-700 transition-colors"
           >
             ⏮
           </button>
 
-          {/* Play / Pause */}
           <button
-            onClick={() => setIsPlaying((p) => !p)}
+            onClick={onPlayPause}
             title={isPlaying ? 'Pause' : 'Lire'}
             className="w-10 h-10 rounded-full bg-gold-500 hover:bg-gold-400 text-teal-950 flex items-center justify-center font-bold text-lg transition-colors shadow-md"
           >
-            {isLoading ? (
+            {isAudioLoading ? (
               <span className="text-xs animate-pulse">…</span>
             ) : isPlaying ? (
               '⏸'
@@ -191,10 +116,9 @@ function SurahAudioPlayer({
             )}
           </button>
 
-          {/* Next ayah */}
           <button
-            onClick={() => setCurrentIdx((p) => Math.min(ayahs.length - 1, p + 1))}
-            disabled={currentIdx === ayahs.length - 1}
+            onClick={onNext}
+            disabled={playerIdx === ayahs.length - 1}
             title="Verset suivant"
             className="w-8 h-8 flex items-center justify-center text-teal-400 hover:text-white disabled:text-teal-700 transition-colors"
           >
@@ -212,7 +136,7 @@ function SurahAudioPlayer({
             'Verset'
           )}{' '}
           <span className="text-teal-500">
-            {currentIdx + 1} / {ayahs.length}
+            {playerIdx + 1} / {ayahs.length}
           </span>
         </span>
       </div>
@@ -224,10 +148,7 @@ function SurahAudioPlayer({
           style={{ width: `${progress}%` }}
         />
       </div>
-
-      <p className="text-teal-600 text-xs mt-1">
-        Lecture automatique verset par verset
-      </p>
+      <p className="text-teal-600 text-xs mt-1">Lecture automatique verset par verset</p>
     </div>
   );
 }
@@ -238,9 +159,9 @@ function SurahHeader({
   meta,
   showBismillah,
 }: {
-  surahNumber: number;
-  meta: JuzViewerProps['surahMeta'][number] | undefined;
-  showBismillah: boolean;
+  surahNumber:  number;
+  meta:         JuzViewerProps['surahMeta'][number] | undefined;
+  showBismillah:boolean;
 }) {
   if (!meta) return null;
   return (
@@ -289,14 +210,15 @@ function AyahRow({
   ayah,
   idx,
   isActive,
+  onPlay,
 }: {
-  ayah: AyahWithTranslation;
-  idx: number;
+  ayah:     AyahWithTranslation;
+  idx:      number;
   isActive: boolean;
+  onPlay:   (ayah: AyahWithTranslation) => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
 
-  // Scroll into view when this ayah becomes active
   useEffect(() => {
     if (isActive) {
       rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -314,7 +236,8 @@ function AyahRow({
     >
       {/* Arabic */}
       <div className="flex items-start gap-3 justify-end mb-3">
-        <div className="order-first mt-1 shrink-0">
+        {/* Number badge + audio icon stacked */}
+        <div className="order-first mt-1 shrink-0 flex flex-col items-center gap-1">
           <span
             className={`inline-flex items-center justify-center w-8 h-8 rounded-full border text-xs font-medium transition-colors ${
               isActive
@@ -324,7 +247,19 @@ function AyahRow({
           >
             {ayah.numberInSurah}
           </span>
+          <button
+            onClick={() => onPlay(ayah)}
+            title={isActive ? 'Arrêter' : `Écouter le verset ${ayah.numberInSurah}`}
+            className={`text-sm leading-none transition-all ${
+              isActive
+                ? 'text-gold-400 animate-pulse scale-110'
+                : 'text-teal-600 hover:text-gold-400 hover:scale-110'
+            }`}
+          >
+            {isActive ? '⏸' : '🔊'}
+          </button>
         </div>
+
         <p
           className="arabic-text text-right text-teal-50 text-xl sm:text-2xl flex-1 leading-loose"
           dir="rtl"
@@ -391,9 +326,9 @@ function SurahTabs({
   onSelect,
 }: {
   surahNumbers: number[];
-  currentIdx: number;
-  meta: JuzViewerProps['surahMeta'];
-  onSelect: (idx: number) => void;
+  currentIdx:   number;
+  meta:         JuzViewerProps['surahMeta'];
+  onSelect:     (idx: number) => void;
 }) {
   const tabRef = useRef<HTMLDivElement>(null);
 
@@ -430,21 +365,164 @@ function SurahTabs({
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerProps) {
-  const [juzData, setJuzData]               = useState<JuzData | null>(null);
-  const [error, setError]                   = useState<string | null>(null);
-  const [loading, setLoading]               = useState(true);
-  const [currentSurahIdx, setCurrentSurahIdx] = useState(0);
+  const [juzData, setJuzData]                     = useState<JuzData | null>(null);
+  const [error, setError]                         = useState<string | null>(null);
+  const [loading, setLoading]                     = useState(true);
+  const [currentSurahIdx, setCurrentSurahIdx]     = useState(0);
+
+  // ── Audio state (single Audio element shared by player bar + per-ayah buttons)
+  const [playerIdx, setPlayerIdx]                 = useState(0);
+  const [isPlaying, setIsPlaying]                 = useState(false);
+  const [isAudioLoading, setIsAudioLoading]       = useState(false);
+  const [reciter, setReciter]                     = useState<ReciterId>('Alafasy_128kbps');
   const [playingAyahNumber, setPlayingAyahNumber] = useState<number | null>(null);
 
+  const audioRef        = useRef<HTMLAudioElement | null>(null);
+  const playerIdxRef    = useRef(playerIdx);
+  const reciterRef      = useRef(reciter);
+  const currentAyahsRef = useRef<AyahWithTranslation[]>([]);
+  playerIdxRef.current  = playerIdx;
+  reciterRef.current    = reciter;
+
   const contentRef = useRef<HTMLDivElement>(null);
-  const prevJuz    = juzNumber > 1 ? juzNumber - 1 : null;
+  const prevJuz    = juzNumber > 1  ? juzNumber - 1 : null;
   const nextJuz    = juzNumber < 30 ? juzNumber + 1 : null;
 
+  // Derived reading data
+  const surahGroups     = juzData ? groupBySurah(juzData.ayahs) : null;
+  const surahNumbers    = surahGroups ? Array.from(surahGroups.keys()) : [];
+  const currentSurahNum = surahNumbers[currentSurahIdx] ?? null;
+  const currentAyahs    = currentSurahNum && surahGroups ? (surahGroups.get(currentSurahNum) ?? []) : [];
+  currentAyahsRef.current = currentAyahs;
+
+  const isFirstSurah  = currentSurahIdx === 0;
+  const isLastSurah   = currentSurahIdx === surahNumbers.length - 1;
+  const showBismillah =
+    currentSurahNum !== null &&
+    currentSurahNum !== 1 &&
+    currentSurahNum !== 9 &&
+    currentAyahs[0]?.numberInSurah === 1;
+
+  // ── Initialize a single Audio element once ────────────────────────────────
+  useEffect(() => {
+    const audio = new Audio();
+    audioRef.current = audio;
+
+    audio.onended = () => {
+      const idx   = playerIdxRef.current;
+      const ayahs = currentAyahsRef.current;
+      if (idx < ayahs.length - 1) {
+        const next = ayahs[idx + 1];
+        setPlayerIdx(idx + 1);
+        setIsAudioLoading(true);
+        audio.src = ayahAudioUrl(next.surahNumber, next.numberInSurah, reciterRef.current);
+        audio.play()
+          .then(() => { setIsAudioLoading(false); setPlayingAyahNumber(next.number); })
+          .catch(() => { setIsAudioLoading(false); setIsPlaying(false); setPlayingAyahNumber(null); });
+      } else {
+        setIsPlaying(false);
+        setPlayingAyahNumber(null);
+      }
+    };
+
+    audio.onerror = () => {
+      setIsAudioLoading(false);
+      setIsPlaying(false);
+      setPlayingAyahNumber(null);
+    };
+
+    return () => {
+      audio.pause();
+      audio.src = '';
+      audioRef.current = null;
+    };
+  }, []);
+
+  // ── Core: play ayah at index idx in currentAyahs ──────────────────────────
+  function playFromIdx(idx: number) {
+    const audio = audioRef.current;
+    const ayah  = currentAyahs[idx];
+    if (!audio || !ayah) return;
+
+    audio.pause();
+    audio.src = ayahAudioUrl(ayah.surahNumber, ayah.numberInSurah, reciter);
+    setPlayerIdx(idx);
+    setIsAudioLoading(true);
+
+    audio.play()
+      .then(() => {
+        setIsAudioLoading(false);
+        setIsPlaying(true);
+        setPlayingAyahNumber(ayah.number);
+      })
+      .catch(() => {
+        setIsAudioLoading(false);
+        setIsPlaying(false);
+        setPlayingAyahNumber(null);
+      });
+  }
+
+  function stopAudio() {
+    const audio = audioRef.current;
+    if (audio) { audio.pause(); audio.src = ''; }
+    setIsPlaying(false);
+    setIsAudioLoading(false);
+    setPlayingAyahNumber(null);
+  }
+
+  // ── Player bar handlers ───────────────────────────────────────────────────
+  function handlePlayPause() {
+    if (isPlaying) {
+      audioRef.current?.pause();
+      setIsPlaying(false);
+      setPlayingAyahNumber(null);
+    } else {
+      playFromIdx(playerIdx);
+    }
+  }
+
+  function handlePrev() {
+    if (playerIdx > 0) playFromIdx(playerIdx - 1);
+  }
+
+  function handleNext() {
+    if (playerIdx < currentAyahs.length - 1) playFromIdx(playerIdx + 1);
+  }
+
+  function handleReciterChange(r: ReciterId) {
+    setReciter(r);
+    // If currently playing, restart current ayah with new reciter
+    if (isPlaying) {
+      const audio = audioRef.current;
+      const ayah  = currentAyahs[playerIdx];
+      if (!audio || !ayah) return;
+      audio.pause();
+      audio.src = ayahAudioUrl(ayah.surahNumber, ayah.numberInSurah, r);
+      setIsAudioLoading(true);
+      audio.play()
+        .then(() => { setIsAudioLoading(false); setPlayingAyahNumber(ayah.number); })
+        .catch(() => { setIsAudioLoading(false); setIsPlaying(false); setPlayingAyahNumber(null); });
+    }
+  }
+
+  // ── Per-ayah 🔊 button: jumps player to that ayah and plays ──────────────
+  function handleAyahPlay(ayah: AyahWithTranslation) {
+    // Toggle off if same ayah is playing
+    if (playingAyahNumber === ayah.number) {
+      stopAudio();
+      return;
+    }
+    const idx = currentAyahs.findIndex((a) => a.number === ayah.number);
+    if (idx !== -1) playFromIdx(idx);
+  }
+
+  // ── Data loading ──────────────────────────────────────────────────────────
   const loadJuz = useCallback(async () => {
+    stopAudio();
+    setPlayerIdx(0);
     setLoading(true);
     setError(null);
     setCurrentSurahIdx(0);
-    setPlayingAyahNumber(null);
     try {
       const res = await fetch(`/api/juz/${juzNumber}`);
       if (!res.ok) {
@@ -458,25 +536,15 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
     } finally {
       setLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [juzNumber]);
 
   useEffect(() => { loadJuz(); }, [loadJuz]);
 
-  const surahGroups     = juzData ? groupBySurah(juzData.ayahs) : null;
-  const surahNumbers    = surahGroups ? Array.from(surahGroups.keys()) : [];
-  const currentSurahNum = surahNumbers[currentSurahIdx] ?? null;
-  const currentAyahs    = currentSurahNum && surahGroups ? (surahGroups.get(currentSurahNum) ?? []) : [];
-  const isFirstSurah    = currentSurahIdx === 0;
-  const isLastSurah     = currentSurahIdx === surahNumbers.length - 1;
-  const showBismillah   =
-    currentSurahNum !== null &&
-    currentSurahNum !== 1 &&
-    currentSurahNum !== 9 &&
-    currentAyahs[0]?.numberInSurah === 1;
-
   function goToSurah(idx: number) {
+    stopAudio();
+    setPlayerIdx(0);
     setCurrentSurahIdx(idx);
-    setPlayingAyahNumber(null);
     setTimeout(() => {
       contentRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 50);
@@ -512,7 +580,7 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
       <div className="bg-teal-800 border-b border-teal-700 px-4 sm:px-8 py-3 max-w-4xl mx-auto">
         <div className="flex flex-wrap gap-x-6 gap-y-1 items-center text-sm">
           {[
-            { label: 'Juz',    value: `${juzNumber} / 30`, accent: true },
+            { label: 'Juz',     value: `${juzNumber} / 30`, accent: true },
             { label: 'Versets', value: juzData ? String(juzData.ayahs.length) : '—' },
             { label: 'Début',   value: `${surahMeta[juzInfo.startSurah]?.nameTranslit ?? ''}${juzInfo.startAyah !== 1 ? ` :${juzInfo.startAyah}` : ''}` },
             { label: 'Fin',     value: `${surahMeta[juzInfo.endSurah]?.nameTranslit ?? ''} :${juzInfo.endAyah}` },
@@ -563,11 +631,17 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
               />
             </div>
 
-            {/* Audio player — reset on surah change via key */}
+            {/* Global audio player bar */}
             <SurahAudioPlayer
-              key={currentSurahNum}
               ayahs={currentAyahs}
-              onPlayingAyah={setPlayingAyahNumber}
+              playerIdx={playerIdx}
+              isPlaying={isPlaying}
+              isAudioLoading={isAudioLoading}
+              reciter={reciter}
+              onPlayPause={handlePlayPause}
+              onPrev={handlePrev}
+              onNext={handleNext}
+              onReciterChange={handleReciterChange}
             />
 
             {/* Surah header */}
@@ -577,7 +651,7 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
               showBismillah={showBismillah}
             />
 
-            {/* Ayahs */}
+            {/* Ayahs — each has a 🔊 icon below its number */}
             <div>
               {currentAyahs.map((ayah, idx) => (
                 <AyahRow
@@ -585,6 +659,7 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
                   ayah={ayah}
                   idx={idx}
                   isActive={ayah.number === playingAyahNumber}
+                  onPlay={handleAyahPlay}
                 />
               ))}
             </div>
