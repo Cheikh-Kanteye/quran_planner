@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Amiri } from "next/font/google";
+import { Geist, Amiri, Scheherazade_New, Noto_Naskh_Arabic } from "next/font/google";
 import { Analytics } from '@vercel/analytics/next';
 import "./globals.css";
 
@@ -12,6 +12,18 @@ const amiri = Amiri({
   variable: "--font-amiri",
   weight: ["400", "700"],
   subsets: ["arabic", "latin"],
+});
+
+const scheherazade = Scheherazade_New({
+  variable: "--font-scheherazade",
+  weight: ["400", "700"],
+  subsets: ["arabic"],
+});
+
+const notoNaskh = Noto_Naskh_Arabic({
+  variable: "--font-noto-naskh",
+  weight: ["400", "700"],
+  subsets: ["arabic"],
 });
 
 export const metadata: Metadata = {
@@ -28,7 +40,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fr">
-      <body className={`${geistSans.variable} ${amiri.variable} antialiased`}>
+      <body className={`${geistSans.variable} ${amiri.variable} ${scheherazade.variable} ${notoNaskh.variable} antialiased`}>
         {children}
         <Analytics />
       </body>

@@ -31,6 +31,147 @@ function ayahAudioUrl(surahNum: number, ayahInSurah: number, reciter: ReciterId)
   return `https://everyayah.com/data/${reciter}/${s}${a}.mp3`;
 }
 
+// ── Reader settings ───────────────────────────────────────────────────────────
+interface ReaderSettings {
+  arabicSize: number;
+  frenchSize: number;
+  arabicFont: 'amiri' | 'scheherazade' | 'noto-naskh';
+}
+
+const DEFAULT_SETTINGS: ReaderSettings = { arabicSize: 22, frenchSize: 14, arabicFont: 'amiri' };
+
+const ARABIC_SIZES = [
+  { label: 'S',  size: 18 },
+  { label: 'M',  size: 22 },
+  { label: 'L',  size: 28 },
+  { label: 'XL', size: 34 },
+] as const;
+
+const FRENCH_SIZES = [
+  { label: 'S', size: 12 },
+  { label: 'M', size: 14 },
+  { label: 'L', size: 16 },
+] as const;
+
+const ARABIC_FONTS = [
+  { id: 'amiri',        label: 'Amiri',       variable: 'var(--font-amiri)' },
+  { id: 'scheherazade', label: 'Scheherazade', variable: 'var(--font-scheherazade)' },
+  { id: 'noto-naskh',   label: 'Noto Naskh',  variable: 'var(--font-noto-naskh)' },
+] as const;
+
+function useSettings(): [ReaderSettings, (s: ReaderSettings) => void] {
+  const [settings, setSettingsState] = useState<ReaderSettings>(DEFAULT_SETTINGS);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('quran-reader-settings');
+      if (stored) setSettingsState(JSON.parse(stored) as ReaderSettings);
+    } catch { /* ignore */ }
+  }, []);
+
+  function setSettings(s: ReaderSettings) {
+    setSettingsState(s);
+    try { localStorage.setItem('quran-reader-settings', JSON.stringify(s)); } catch { /* ignore */ }
+  }
+
+  return [settings, setSettings];
+}
+
+// ── Settings panel ────────────────────────────────────────────────────────────
+function SettingsPanel({
+  settings,
+  onChange,
+  onClose,
+}: {
+  settings: ReaderSettings;
+  onChange: (s: ReaderSettings) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed top-16 right-4 z-50 w-80 bg-teal-950 border border-teal-700 rounded-2xl shadow-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-teal-800">
+        <span className="text-gold-400 font-semibold text-sm">Paramètres de lecture</span>
+        <button
+          onClick={onClose}
+          className="text-teal-500 hover:text-white transition-colors text-lg leading-none"
+        >
+          ✕
+        </button>
+      </div>
+
+      {/* Arabic text */}
+      <div className="px-4 py-3 border-b border-teal-800 space-y-3">
+        <p className="text-teal-300 text-xs font-semibold uppercase tracking-wider">Texte arabe</p>
+
+        <div>
+          <p className="text-teal-500 text-xs mb-1.5">Taille</p>
+          <div className="flex gap-1.5">
+            {ARABIC_SIZES.map(({ label, size }) => (
+              <button
+                key={label}
+                onClick={() => onChange({ ...settings, arabicSize: size })}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                  settings.arabicSize === size
+                    ? 'bg-gold-500 text-teal-950 border-gold-500'
+                    : 'bg-teal-800 text-teal-300 border-teal-700 hover:bg-teal-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="text-teal-500 text-xs mb-1.5">Police</p>
+          <div className="flex flex-col gap-1.5">
+            {ARABIC_FONTS.map(({ id, label, variable }) => (
+              <button
+                key={id}
+                onClick={() => onChange({ ...settings, arabicFont: id as ReaderSettings['arabicFont'] })}
+                className={`py-2 px-3 rounded-lg border transition-colors flex items-center justify-between ${
+                  settings.arabicFont === id
+                    ? 'bg-gold-500/15 text-gold-400 border-gold-600'
+                    : 'bg-teal-800 text-teal-300 border-teal-700 hover:bg-teal-700'
+                }`}
+              >
+                <span className="text-xs">{label}</span>
+                <span dir="rtl" style={{ fontFamily: variable, fontSize: 18, lineHeight: 1.6 }}>
+                  الرَّحْمَٰن
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* French translation */}
+      <div className="px-4 py-3">
+        <p className="text-teal-300 text-xs font-semibold uppercase tracking-wider mb-3">Traduction française</p>
+        <div>
+          <p className="text-teal-500 text-xs mb-1.5">Taille</p>
+          <div className="flex gap-1.5">
+            {FRENCH_SIZES.map(({ label, size }) => (
+              <button
+                key={label}
+                onClick={() => onChange({ ...settings, frenchSize: size })}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                  settings.frenchSize === size
+                    ? 'bg-gold-500 text-teal-950 border-gold-500'
+                    : 'bg-teal-800 text-teal-300 border-teal-700 hover:bg-teal-700'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toArabicNumeral(n: number): string {
   return n
@@ -211,11 +352,15 @@ function AyahRow({
   idx,
   isActive,
   onPlay,
+  arabicStyle,
+  frenchStyle,
 }: {
-  ayah:     AyahWithTranslation;
-  idx:      number;
-  isActive: boolean;
-  onPlay:   (ayah: AyahWithTranslation) => void;
+  ayah:        AyahWithTranslation;
+  idx:         number;
+  isActive:    boolean;
+  onPlay:      (ayah: AyahWithTranslation) => void;
+  arabicStyle: React.CSSProperties;
+  frenchStyle: React.CSSProperties;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -261,9 +406,10 @@ function AyahRow({
         </div>
 
         <p
-          className="arabic-text text-right text-teal-50 text-xl sm:text-2xl flex-1 leading-loose"
+          className="arabic-text text-right text-teal-50 flex-1"
           dir="rtl"
           lang="ar"
+          style={arabicStyle}
         >
           {ayah.arabicText}{' '}
           <span className={`text-base ${isActive ? 'text-gold-400' : 'text-gold-500'}`}>
@@ -274,7 +420,7 @@ function AyahRow({
 
       {/* French translation */}
       <div className="pl-11">
-        <p className="text-teal-200 text-sm leading-relaxed">
+        <p className="text-teal-200 leading-relaxed" style={frenchStyle}>
           <span className="text-teal-500 font-medium mr-1">{ayah.numberInSurah}.</span>
           {ayah.frenchText}
         </p>
@@ -369,6 +515,8 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
   const [error, setError]                         = useState<string | null>(null);
   const [loading, setLoading]                     = useState(true);
   const [currentSurahIdx, setCurrentSurahIdx]     = useState(0);
+  const [showSettings, setShowSettings]           = useState(false);
+  const [settings, setSettings]                   = useSettings();
 
   // ── Audio state (single Audio element shared by player bar + per-ayah buttons)
   const [playerIdx, setPlayerIdx]                 = useState(0);
@@ -541,6 +689,14 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
 
   useEffect(() => { loadJuz(); }, [loadJuz]);
 
+  const arabicTextStyle: React.CSSProperties = {
+    fontSize: `${settings.arabicSize}px`,
+    fontFamily: ARABIC_FONTS.find((f) => f.id === settings.arabicFont)?.variable ?? 'var(--font-amiri)',
+    lineHeight: settings.arabicSize <= 18 ? 2.0 : settings.arabicSize <= 22 ? 2.2 : settings.arabicSize <= 28 ? 2.4 : 2.6,
+  };
+
+  const frenchTextStyle: React.CSSProperties = { fontSize: `${settings.frenchSize}px` };
+
   function goToSurah(idx: number) {
     stopAudio();
     setPlayerIdx(0);
@@ -563,6 +719,17 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
           <p className="text-teal-400 text-xs truncate">{juzInfo.nameFrench}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowSettings((p) => !p)}
+            title="Paramètres de lecture"
+            className={`w-8 h-8 flex items-center justify-center rounded-lg border text-sm transition-colors ${
+              showSettings
+                ? 'bg-gold-500 text-teal-950 border-gold-500'
+                : 'bg-teal-800 border-teal-700 text-teal-300 hover:text-white hover:bg-teal-700'
+            }`}
+          >
+            ⚙
+          </button>
           {prevJuz && (
             <Link href={`/juz/${prevJuz}`} className="bg-teal-800 hover:bg-teal-700 border border-teal-700 text-teal-300 hover:text-white text-xs px-3 py-1.5 rounded-lg transition-colors">
               ← {prevJuz}
@@ -575,6 +742,14 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
           )}
         </div>
       </header>
+
+      {showSettings && (
+        <SettingsPanel
+          settings={settings}
+          onChange={setSettings}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
 
       {/* ── Juz overview ── */}
       <div className="bg-teal-800 border-b border-teal-700 px-4 sm:px-8 py-3 max-w-4xl mx-auto">
@@ -660,6 +835,8 @@ export default function JuzViewer({ juzNumber, juzInfo, surahMeta }: JuzViewerPr
                   idx={idx}
                   isActive={ayah.number === playingAyahNumber}
                   onPlay={handleAyahPlay}
+                  arabicStyle={arabicTextStyle}
+                  frenchStyle={frenchTextStyle}
                 />
               ))}
             </div>
